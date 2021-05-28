@@ -1,0 +1,329 @@
+
+#include <stdio.h>
+#include <stdlib.h>
+
+struct code{//代码段结构体
+    int dec_code;//十进制原码
+    int dec_ope_code;//十进制操作原码
+    int cmd_ope_code;//十进制指令（前8位）
+    int pre_ope_code;//9-12位
+    int bac_ope_code;//13-16位
+    int dec_imm_code;//十进制立即数
+    char bin_code[36];//二进制原码字符型数组
+    struct code *next = NULL;//指针连接
+};
+typedef struct code *code_p;//代码结构体指针
+
+struct registers{//寄存器结构体，将全部寄存器封装起来，使用指针进行操作
+    int ax[4] = {0};//三个系统寄存器，为方便下标统一，定义四个
+    int a[9] = {0};//八个通用寄存器，为方便下标统一，定义九个
+} ;
+typedef struct registers *regs;//寄存器结构指针
+
+void prepare(struct code*,FILE*);//预载入函数
+void run_code(struct code*,int*,regs);//运行
+void sta(regs);//执行完一条指令后输出状态
+int bin_1(char *,int,int);//源码转换函数
+int bin_2(char *,int,int);//补码转换函数
+
+code_p mov(struct code*, int*, int*, int*);//数据传送
+code_p cul(struct code*, int*, int*, int*);//算术运算
+code_p lgc(struct code*, int*, int*, int*);//逻辑运算
+code_p cmp(struct code*, int*, int*, int*);//比较指令
+code_p jmp(struct code*, struct code*, int*, int*, int*);//跳转指令
+code_p scp(struct code*, int*, int*);//标准输入输出
+code_p stp(struct code*, int*);//标准输入输出
+
+int main()
+{
+    struct registers reg;//寄存器
+    regs pRegisters = &reg;//寄存器传递指针
+    int data[256]={0};
+    code_p code_head=(code_p)malloc(sizeof(struct code));//申请代码段头结点
+    FILE *code_file=fopen("add_dict.dic","r");
+    prepare(code_head,code_file);//载入代码
+    run_code(code_head,data,pRegisters);//运行代码
+    fclose(code_file);
+    return 0;
+}
+
+void prepare(struct code *head,FILE *fp){
+    int i=0;
+    char temp[32],ope[32],c;
+    code_p apply,now = head;
+    c=fgetc(fp);
+    while(c!=EOF){
+        while(c!=EOF&&c!='\n'){//读入一行二进制数储存在temp字符串中
+            temp[i]=c;
+            c=fgetc(fp);
+            i++;
+        }
+        i=0;
+        temp[32]='\0';
+        apply=(code_p)malloc(sizeof(struct code));//申请一个新节点
+        apply->dec_code=bin_1(temp,0,31);//此处开始将二进制转化为十进制
+        apply->dec_imm_code=bin_2(temp,16,31);
+        apply->dec_ope_code=bin_1(temp,0,15);
+        apply->cmd_ope_code=bin_1(temp,0,7);
+        apply->pre_ope_code=bin_1(temp,8,11);
+        apply->bac_ope_code=bin_1(temp,12,15);
+        now->next=apply;
+        apply->next=NULL;
+        now=apply;
+        c=fgetc(fp);
+    }
+}
+
+void run_code(struct code *link,int *data,regs allreg){
+    int row=0,col=0,i=0;
+    code_p head=link->next;
+    code_p first=link->next;
+    while(head!=NULL){
+        switch (head->cmd_ope_code) {//指令跳转
+            case 1:
+                head=mov(head,allreg->ax,allreg->a,data);//转移数据
+                break;
+            case 2:case 3:case 4:case 5:
+                head=cul(head,allreg->ax,allreg->a,data);//数学运算
+                break;
+            case 6:case 7:case 8:
+                head=lgc(head,allreg->ax,allreg->a,data);//逻辑运算
+                break;
+            case 9:
+                head=cmp(head,allreg->ax,allreg->a,data);//比较操作
+                break;
+            case 10:
+                head=jmp(link,head,allreg->ax,allreg->a,data);//跳转操作
+                break;
+            case 11:case 12:
+                head=scp(head,allreg->ax,allreg->a);//标准输入输出
+                break;
+            default:
+                head=stp(head,allreg->ax);
+        }
+        sta(allreg);//输出
+    }
+    printf("\n");
+    printf("codeSegment :\n");//输出代码段内存
+    for(row=0;row<16;row++){
+        for(col=0;col<8;col++){
+            if(first!=NULL){
+                printf("%d ",first->dec_code);
+                first=first->next;
+            }
+            else printf("0 ");
+        }
+        printf("\n");
+    }
+    printf("\n");
+    printf("dataSegment :\n");//输出数据段内存
+    for(i=0;i<256;i++){
+        printf("%d ",data[i]);
+        if((i+1)%16==0) printf("\n");
+    }
+}
+
+int bin_1(char *s,int start,int end){//源码转换函数
+    int a=1;
+    int sum=0;
+    for(int i=end;i>=start;i--){//从右到左转换
+        sum=sum+(s[i]-'0')*a;
+        a=a*2;
+    }
+    return sum;
+}
+int bin_2(char *s,int start,int end){//补码转换函数
+    int i,a=1;
+    int sum=0;
+    int num[32];
+    if(s[start]=='1'){
+        for(i=start;i<end+1;i++){
+            if(s[i]-'0'==1) num[i]=0;
+            else num[i]=1;
+        }
+        for(i=31;i>=16;i--){
+            sum=sum+num[i]*a;
+            a=a*2;
+        }
+        sum=-(sum+1);
+        }
+    else{
+        for(i=start;i<end+1;i++){
+            num[i]=s[i]-'0';
+        }
+        for(i=31;i>=16;i--){
+            sum=sum+num[i]*a;
+            a=a*2;
+        }
+    }
+    return sum;//返回结果
+}
+
+code_p scp( struct code *now, int *prf, int *axn){
+    int number;
+    if(now->cmd_ope_code==11){//输入
+        printf("in:\n");
+        scanf("%d",&number);
+        axn[now->pre_ope_code]=number;
+    }
+    else{//输出
+        printf("out: %d\n",axn[now->pre_ope_code]);
+    }
+    prf[1]=now->dec_ope_code;
+    prf[0]+=4;
+    return now->next;
+}
+
+code_p mov(struct code *now, int *prf, int *axn, int *data){
+    int dword=0;//设置偏移量
+    if(now->bac_ope_code==0) axn[now->pre_ope_code]=now->dec_imm_code;
+    else if(now->bac_ope_code>=5){
+        dword=(axn[now->bac_ope_code]-16384)/2;
+        axn[now->pre_ope_code]=data[dword];
+    }
+    else{
+        dword=(axn[now->pre_ope_code]-16384)/2;
+        data[dword]=axn[now->bac_ope_code];
+    }
+    prf[1]=now->dec_ope_code;
+    prf[0]+=4;
+    return now->next;
+}
+
+code_p cul(struct code *now, int *prf, int *axn, int *data){
+    int dword=0;
+    if(now->cmd_ope_code==2){
+        if(now->bac_ope_code==0) axn[now->pre_ope_code]=axn[now->pre_ope_code]+now->dec_imm_code;//加法运算
+        else{
+            dword=(axn[now->bac_ope_code]-16384)/2;
+            axn[now->pre_ope_code]=axn[now->pre_ope_code]+data[dword];
+        }
+    }
+    else if(now->cmd_ope_code==3){
+        if(now->bac_ope_code==0) axn[now->pre_ope_code]=axn[now->pre_ope_code]-now->dec_imm_code;//减法运算
+        else{
+            dword=(axn[now->bac_ope_code]-16384)/2;
+            axn[now->pre_ope_code]=axn[now->pre_ope_code]-data[dword];
+        }
+    }
+    else if(now->cmd_ope_code==4){
+        if(now->bac_ope_code==0) axn[now->pre_ope_code]=axn[now->pre_ope_code]*now->dec_imm_code;//乘法运算
+        else{
+            dword=(axn[now->bac_ope_code]-16384)/2;
+            axn[now->pre_ope_code]=axn[now->pre_ope_code]*data[dword];
+        }
+    }
+    else{
+        if(now->bac_ope_code==0) axn[now->pre_ope_code]=axn[now->pre_ope_code]/now->dec_imm_code;//除法运算
+        else{
+            dword=(axn[now->bac_ope_code]-16384)/2;
+            axn[now->pre_ope_code]=axn[now->pre_ope_code]/data[dword];
+        }
+    }
+    prf[1]=now->dec_ope_code;
+    prf[0]+=4;
+    return now->next;
+}
+
+code_p lgc(struct code *now, int *prf, int *axn, int *data){
+    int dword;
+    if(now->cmd_ope_code==6){
+        if(now->bac_ope_code==0) axn[now->pre_ope_code]=axn[now->pre_ope_code]&&now->dec_imm_code;//逻辑与
+        else{
+            dword=(axn[now->bac_ope_code]-16384)/2;
+            axn[now->pre_ope_code]=axn[now->pre_ope_code]&&data[dword];
+        }
+    }
+    else if(now->cmd_ope_code==7){
+        if(now->bac_ope_code==0) axn[now->pre_ope_code]=axn[now->pre_ope_code]||now->dec_imm_code;//逻辑或
+        else{
+            dword=(axn[now->bac_ope_code]-16384)/2;
+            axn[now->pre_ope_code]=axn[now->pre_ope_code]||data[dword];
+        }
+    }
+    else{
+        if(now->bac_ope_code==0) axn[now->pre_ope_code]=!axn[now->pre_ope_code];//逻辑非
+        else{
+            dword=(axn[now->bac_ope_code]-16384)/2;
+            data[dword]=!data[dword];
+        }
+    }
+    prf[1]=now->dec_ope_code;
+    prf[0]+=4;
+    return now->next;
+}
+
+code_p cmp(struct code *now, int *prf, int *axn, int *data){
+    int dword;
+    if(now->bac_ope_code==0){
+        if(axn[now->pre_ope_code]==now->dec_imm_code) prf[2]=0;
+        else if(axn[now->pre_ope_code]>now->dec_imm_code) prf[2]=1;
+        else prf[2]=-1;
+    }
+    else{
+        dword=(axn[now->bac_ope_code]-16384)/2;
+        if(axn[now->pre_ope_code]==data[dword]) prf[2]=0;
+        else if(axn[now->pre_ope_code]>data[dword]) prf[2]=1;
+        else prf[2]=-1;
+    }
+    prf[1]=now->dec_ope_code;
+    prf[0]+=4;
+    return now->next;
+}
+
+code_p jmp(struct code *link, struct code *now, int *prf, int *axn, int *data){
+    code_p jump_node=link,result;//跳转的目标节点
+    int count=0,state=0;//计数器和状态
+    int jump_number;//跳转节点个数
+    if(now->dec_imm_code<0){//向负字节跳转
+        jump_number=prf[0]/4+now->dec_imm_code/4;
+        for(count=0;count<=jump_number;count++){
+            jump_node=jump_node->next;
+        }
+    }
+    else{// 向正字节跳转
+        jump_number=now->dec_imm_code/4;
+        jump_node=now;
+        for(count=0;count<jump_number;count++){
+            jump_node=jump_node->next;
+        }
+    }
+    if(now->bac_ope_code==0) state=1;//强制跳转
+    else if(now->bac_ope_code==1){//条件跳转1
+        if(prf[2]==0) state=1;
+        else state=0;
+    }
+    else if(now->bac_ope_code==2){//条件跳转2
+        if(prf[2]==1) state=1;
+        else state=0;
+    }
+    else{//条件跳转3
+        if(prf[2]==-1) state=1;
+        else state=0;
+    }
+    if(state==1){
+        result=jump_node;
+        prf[0]=prf[0]+now->dec_imm_code;
+    }
+    else{
+        prf[0]+=4;
+        result=now->next;
+    }
+    prf[1]=now->dec_ope_code;
+    return result;
+}
+
+code_p stp( struct code *now, int *prf){
+    prf[1]=now->dec_ope_code;
+    prf[0]+=4;
+    return now->next;
+}
+
+void sta(regs Registers){//每次执行输出
+    printf("ip = %d\n", Registers->ax[0]);
+    printf("flag = %d\n", Registers->ax[2]);
+    printf("ir = %d\n", Registers->ax[1]);
+    printf("ax1 = %d ax2 = %d ax3 = %d ax4 = %d\n", Registers->a[1], Registers->a[2], Registers->a[3], Registers->a[4]);
+    printf("ax5 = %d ax6 = %d ax7 = %d ax8 = %d\n", Registers->a[5], Registers->a[6], Registers->a[7], Registers->a[8]);
+}
+
