@@ -33,12 +33,13 @@ code_p cmp(struct code*, int*, int*, int*);//比较指令
 code_p jmp(struct code*, struct code*, int*, int*, int*);//跳转指令
 code_p scp(struct code*, int*, int*);//标准输入输出
 code_p stp(struct code*, int*);//标准输入输出
+void finalout(struct code *link,int *data);
 
 int main()
 {
     struct registers reg;//寄存器
     regs pRegisters = &reg;//寄存器传递指针
-    int data[256]={0};
+    int data[256]={0};//数据段
     code_p code_head=(code_p)malloc(sizeof(struct code));//申请代码段头结点
     FILE *code_file=fopen("add_dict.dic","r");
     prepare(code_head,code_file);//载入代码
@@ -103,24 +104,7 @@ void run_code(struct code *link,int *data,regs allreg){
         }
         sta(allreg);//输出
     }
-    printf("\n");
-    printf("codeSegment :\n");//输出代码段内存
-    for(row=0;row<16;row++){
-        for(col=0;col<8;col++){
-            if(first!=NULL){
-                printf("%d ",first->dec_code);
-                first=first->next;
-            }
-            else printf("0 ");
-        }
-        printf("\n");
-    }
-    printf("\n");
-    printf("dataSegment :\n");//输出数据段内存
-    for(i=0;i<256;i++){
-        printf("%d ",data[i]);
-        if((i+1)%16==0) printf("\n");
-    }
+    finalout(link,data);
 }
 
 int bin_1(char *s,int start,int end){//源码转换函数
@@ -325,5 +309,28 @@ void sta(regs Registers){//每次执行输出
     printf("ir = %d\n", Registers->ax[1]);
     printf("ax1 = %d ax2 = %d ax3 = %d ax4 = %d\n", Registers->a[1], Registers->a[2], Registers->a[3], Registers->a[4]);
     printf("ax5 = %d ax6 = %d ax7 = %d ax8 = %d\n", Registers->a[5], Registers->a[6], Registers->a[7], Registers->a[8]);
+}
+
+void finalout(struct code *link,int *data){
+    code_p first=link->next;
+    int row=0,col=0,i=0;
+    printf("\n");
+    printf("codeSegment :\n");//输出代码内存
+    for(row=0;row<16;row++){
+        for(col=0;col<8;col++){
+            if(first!=NULL){
+                printf("%d ",first->dec_code);
+                first=first->next;
+            }
+            else printf("0 ");
+        }
+        printf("\n");
+    }
+    printf("\n");
+    printf("dataSegment :\n");//输出数据内存
+    for(i=0;i<256;i++){
+        printf("%d ",data[i]);
+        if((i+1)%16==0) printf("\n");
+    }
 }
 
